@@ -45,14 +45,14 @@ func main() {
 		Required: false,
 		Validate: nil,
 		Help:     "Interval in minutes at which to check public IP",
-		Default:  1,
+		Default:  utils.GetEnvDefaultInt("DODDNS_CHECK_INTERVAL_MINUTES", 1),
 	})
 
 	ttlArg := p.Int("", "ttl", &argparse.Options{
 		Required: false,
 		Validate: nil,
 		Help:     "DNS record TTL to use",
-		Default:  300,
+		Default:  utils.GetEnvDefaultInt("DODDNS_RECORD_TTL", 300),
 	})
 
 	err := p.Parse(os.Args)

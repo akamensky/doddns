@@ -5,6 +5,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"strconv"
 )
 
 func ParseAndValidateIPAddress(s string) (net.IP, error) {
@@ -41,4 +42,17 @@ func ReadTokenFromFile(fp string) (string, error) {
 	}
 
 	return token, nil
+}
+
+func GetEnvDefaultInt(name string, value int) int {
+	env := os.Getenv(name)
+	if env == "" {
+		return value
+	}
+
+	res, err := strconv.Atoi(env)
+	if err != nil {
+		panic(err)
+	}
+	return res
 }

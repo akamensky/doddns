@@ -7,4 +7,4 @@ RUN apk --no-cache add ca-certificates
 WORKDIR /
 COPY --from=builder /dodns ./
 ENTRYPOINT "/dodns"
-CMD ["--help"]
+CMD [""]
