@@ -1,7 +1,8 @@
 package main
 
 import (
-	"fmt"
+	"doddns/provider"
+	"doddns/utils"
 	"github.com/akamensky/argparse"
 	"io"
 	"log"
@@ -12,11 +13,6 @@ import (
 	"time"
 )
 
-var (
-	knownPublicIPv4 net.IP
-	knownPublicIPv6 net.IP
-)
-
 func main() {
 	p := argparse.NewParser("doddns", "Use DitialOcean for Dynamic DNS")
 
@@ -25,17 +21,17 @@ func main() {
 		Validate: nil,
 		Help:     "External services used to detect public IP",
 		Default: []string{
-			"http://ifconfig.co/",
-			"http://ifconfig.me/",
-			"http://ifconfig.io/",
+			"https://ifconfig.co/",
+			"https://ifconfig.me/",
+			"https://ifconfig.io/",
 		},
 	})
 
-	domainNameArg := p.String("d", "domain", &argparse.Options{
+	hostnameArg := p.String("", "hostname", &argparse.Options{
 		Required: false,
 		Validate: nil,
-		Help:     "Domain name to set. A record for said name must already be created.",
-		Default:  os.Getenv("DODDNS_DOMAIN"),
+		Help:     "Hostname name to set. Corresponding domain name must already be created",
+		Default:  os.Getenv("DODDNS_HOSTNAME"),
 	})
 
 	apiTokenFileArg := p.String("f", "token-file", &argparse.Options{
@@ -48,26 +44,78 @@ func main() {
 	ipCheckIntervalSecondsArg := p.Int("i", "check-interval", &argparse.Options{
 		Required: false,
 		Validate: nil,
-		Help:     "Interval in seconds at which to check public IP",
-		Default:  900,
+		Help:     "Interval in minutes at which to check public IP",
+		Default:  1,
+	})
+
+	ttlArg := p.Int("", "ttl", &argparse.Options{
+		Required: false,
+		Validate: nil,
+		Help:     "DNS record TTL to use",
+		Default:  300,
 	})
 
 	err := p.Parse(os.Args)
 	if err != nil {
-		log.Fatal(err)
+		log.Fatalln(err)
 	}
 
 	externalServices := *externalServicesArg
-	domainName := *domainNameArg
+	hostname := *hostnameArg
 	apiTokenFile := *apiTokenFileArg
 	checkIntervalSeconds := *ipCheckIntervalSecondsArg
+	ttl := *ttlArg
 
-	if domainName == "" {
-		log.Fatal("domain name required")
+	if hostname == "" {
+		log.Fatal("hostname required")
 	}
 
 	if apiTokenFile == "" {
-		log.Fatal("API token file required")
+		log.Fatalln("API token file required")
+	}
+
+	token, err := utils.ReadTokenFromFile(apiTokenFile)
+	if err != nil {
+		log.Fatalln(err)
+	}
+
+	doClient := provider.NewDigitalOceanProvider(token)
+	// Get domain for hostname
+	hostname, domain, err := doClient.GetDomainForHostname(hostname)
+	if err != nil {
+		log.Fatalln(err)
+	}
+
+	log.Printf("Found domain [%s], hostname [%s]", domain, hostname)
+
+	// Verify only 1 A and 1 AAAA records for hostname
+	var aRecord, aaaaRecord provider.Record
+	recs, err := doClient.GetARecords(hostname, domain)
+	if err != nil {
+		log.Fatalln(err)
+	}
+	switch len(recs) {
+	case 0:
+		log.Printf("Found 0 A records for hostname [%s] in domain [%s]\n", hostname, domain)
+	case 1:
+		aRecord = recs[0]
+		log.Printf("Found 1 A record for hostname [%s] in domain [%s] pointing to [%s]\n", hostname, domain, aRecord.Ip())
+	default:
+		log.Fatalf("found multiple A records for hostname [%s] in domain [%s]\n", hostname, domain)
+	}
+
+	recs, err = doClient.GetAAAARecords(hostname, domain)
+	if err != nil {
+		log.Fatalln(err)
+	}
+	switch len(recs) {
+	case 0:
+		log.Printf("Found 0 AAAA records for hostname [%s] in domain [%s]\n", hostname, domain)
+	case 1:
+		aaaaRecord = recs[0]
+		log.Printf("Found 1 AAAA record for hostname [%s] in domain [%s] pointing to [%s]\n", hostname, domain, aaaaRecord.Ip())
+	default:
+		log.Fatalf("found multiple AAAA records for hostname [%s] in domain [%s]\n", hostname, domain)
 	}
 
 	for true {
@@ -75,68 +123,53 @@ func main() {
 		for _, externalService := range externalServices {
 			resp, err := http.Get(externalService)
 			if err != nil || resp.StatusCode != 200 {
-				log.Printf("Failed to get IP from %s", externalService)
+				log.Printf("Failed to get IP from %s\n", externalService)
 				continue
 			}
 			b, err := io.ReadAll(resp.Body)
 			if err != nil {
-				log.Fatal(err)
+				log.Fatalln(err)
 			}
-			ip, err = parseAndValidateIPAddress(strings.TrimSpace(string(b)))
+			ip, err = utils.ParseAndValidateIPAddress(strings.TrimSpace(string(b)))
 			if err != nil {
-				log.Fatal(err)
+				log.Fatalln(err)
 			}
 			break
 		}
 		if ip == nil {
-			log.Fatal("Could not obtain public IP address from any known service. Failing.")
+			log.Fatalln("Could not obtain public IP address from any known service. Failing.")
 		}
 
-		// If new IP then update and say so
-		if isNewIp(ip) {
-			log.Println("Found new public IP:", ip.String())
-			storeIp(ip)
-		}
-
-		time.Sleep(time.Second * time.Duration(checkIntervalSeconds))
-	}
-}
-
-func parseAndValidateIPAddress(s string) (net.IP, error) {
-	ip := net.ParseIP(s)
-	if ip == nil {
-		return nil, fmt.Errorf("bad IP %s", s)
-	}
-
-	// TODO: Actually validate if it is good IP
-
-	return ip, nil
-}
-
-func isIPv4(ip net.IP) bool {
-	return ip.To4() != nil
-}
-
-func storeIp(ip net.IP) {
-	if isIPv4(ip) {
-		knownPublicIPv4 = ip
-	} else {
-		knownPublicIPv6 = ip
-	}
-}
-
-func isNewIp(ip net.IP) bool {
-	if isIPv4(ip) {
-		if knownPublicIPv4.Equal(ip) {
-			return false
+		if utils.IsIPv4(ip) {
+			if aRecord == nil {
+				aRecord, err = doClient.CreateARecord(hostname, domain, ip.String(), ttl)
+				if err != nil {
+					log.Fatalln(err)
+				}
+				log.Printf("Created new A record [%s.%s] pointing to [%s] with TTL %d", hostname, domain, ip.String(), ttl)
+			} else if aRecord.Ip() != ip.String() || aRecord.Ttl() != ttl {
+				aRecord, err = doClient.UpdateARecord(aRecord, hostname, domain, ip.String(), ttl)
+				if err != nil {
+					log.Fatalln(err)
+				}
+				log.Printf("Updated A record [%s.%s] pointing to [%s] with TTL %d", hostname, domain, ip.String(), ttl)
+			}
 		} else {
-			return true
+			if aaaaRecord == nil {
+				aaaaRecord, err = doClient.CreateAAAARecord(hostname, domain, ip.String(), ttl)
+				if err != nil {
+					log.Fatalln(err)
+				}
+				log.Printf("Created new AAAA record [%s.%s] pointing to [%s] with TTL %d", hostname, domain, ip.String(), ttl)
+			} else if aaaaRecord.Ip() != ip.String() || aaaaRecord.Ttl() != ttl {
+				aaaaRecord, err = doClient.UpdateAAAARecord(aaaaRecord, hostname, domain, ip.String(), ttl)
+				if err != nil {
+					log.Fatalln(err)
+				}
+				log.Printf("Updated AAAA record [%s.%s] pointing to [%s] with TTL %d", hostname, domain, ip.String(), ttl)
+			}
 		}
-	} else {
-		if knownPublicIPv6.Equal(ip) {
-			return false
-		} else {
-			return true
-		}
+
+		time.Sleep(time.Minute * time.Duration(checkIntervalSeconds))
 	}
 }
