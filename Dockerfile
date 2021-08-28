@@ -6,6 +6,6 @@ RUN CGO_ENABLED=0 GOOS=linux go build -a -v -o /doddns
 FROM alpine:3.14
 RUN apk --no-cache add ca-certificates
 WORKDIR /
-COPY --from=builder /dodns ./
+COPY --from=builder /doddns ./
 ENTRYPOINT "/dodns"
 CMD [""]
