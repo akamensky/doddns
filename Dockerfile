@@ -7,5 +7,5 @@ FROM alpine:3.14
 RUN apk --no-cache add ca-certificates
 WORKDIR /
 COPY --from=builder /doddns ./
-ENTRYPOINT "/dodns"
+ENTRYPOINT "/doddns"
 CMD [""]
