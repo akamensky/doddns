@@ -7,5 +7,10 @@ FROM alpine:3.14
 RUN apk --no-cache add ca-certificates
 WORKDIR /
 COPY --from=builder /doddns ./
+ENV DODDNS_HOSTNAME=""
+ENV DODDNS_API_TOKEN_FILE=""
+ENV DODDNS_CHECK_INTERVAL_MINUTES=""
+ENV DODDNS_RECORD_TTL=""
+ENV DODDNS_IP_SERVICES=""
 ENTRYPOINT "/doddns"
 CMD [""]

@@ -6,6 +6,7 @@ import (
 	"net"
 	"os"
 	"strconv"
+	"strings"
 )
 
 func ParseAndValidateIPAddress(s string) (net.IP, error) {
@@ -55,4 +56,18 @@ func GetEnvDefaultInt(name string, value int) int {
 		panic(err)
 	}
 	return res
+}
+
+func GetEnvDefaultStringList(name string, value []string) []string {
+	env := os.Getenv(name)
+	if env == "" {
+		return value
+	}
+
+	result := make([]string, 0)
+	parts := strings.Split(env, " ")
+	for _, part := range parts {
+		result = append(result, strings.TrimSpace(part))
+	}
+	return result
 }

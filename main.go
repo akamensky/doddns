@@ -20,11 +20,11 @@ func main() {
 		Required: false,
 		Validate: nil,
 		Help:     "External services used to detect public IP",
-		Default: []string{
+		Default: utils.GetEnvDefaultStringList("DODDNS_IP_SERVICES", []string{
 			"https://ifconfig.co/",
 			"https://ifconfig.me/",
 			"https://ifconfig.io/",
-		},
+		}),
 	})
 
 	hostnameArg := p.String("", "hostname", &argparse.Options{
